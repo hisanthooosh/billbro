@@ -14,7 +14,8 @@ function App() {
     // NEW: Updated view state to manage the two-step creation process
     // Around Line 23
     // Around Line 23
-    const [currentView, setCurrentView] = useState('dashboard'); // dashboard, createReport, addExpenses, detail, userManagement, signup, createEvent (NEW)
+    // Around Line 23
+    const [currentView, setCurrentView] = useState('dashboard'); // ..., signup, createEvent, manageCommunities (NEW)
     const [selectedReport, setSelectedReport] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -139,13 +140,13 @@ function App() {
         setLoading(true);
         try {
             // Ensure the URL includes '/reports/' before the ID
-            const response = await axios.get(`${API_URL}/reports/${reportId}`); 
+            const response = await axios.get(`${API_URL}/reports/${reportId}`);
             setSelectedReport(response.data);
             setCurrentView('detail');
         } catch (err) {
-             setError('Could not fetch report details.');
-             // Log the error for debugging
-             console.error("View Report Detail Error:", err); 
+            setError('Could not fetch report details.');
+            // Log the error for debugging
+            console.error("View Report Detail Error:", err);
         } finally {
             setLoading(false);
         }
@@ -218,14 +219,27 @@ function App() {
                     // We will create this component next
                     <CreateEventForm
                         currentUser={currentUser} // Pass the logged-in user
+                        // +++ UPDATE onSuccess LOGIC +++
                         onSuccess={(newEvent) => {
-                            // Decide where to go after creating an event 
-                            // Maybe view the event details or back to dashboard?
                             console.log("Event Created:", newEvent);
-                            fetchReports(currentUser.email); // Re-fetch personal reports for now
+                            setSelectedReport(newEvent); // Store the newly created event
+                            setCurrentView('manageCommunities'); // Go to the community management page
+                            // No need to fetchReports here as we are leaving the dashboard
+                        }}
+                        // +++ END UPDATE +++
+                        onCancel={() => setCurrentView('dashboard')}
+                    />
+
+                )}
+                {currentView === 'manageCommunities' && selectedReport && ( // selectedReport now holds the event
+                    <ManageCommunitiesPage
+                        event={selectedReport} // Pass the event data
+                        currentUser={currentUser}
+                        onFinish={() => {
+                            fetchReports(currentUser.email); // Re-fetch personal reports
+                            // We might need a way to fetch Events separately later
                             setCurrentView('dashboard');
                         }}
-                        onCancel={() => setCurrentView('dashboard')}
                     />
                 )}
             </main>
@@ -390,7 +404,7 @@ const Header = ({ currentUser, onLogout, setCurrentView }) => (
                 {currentUser && (
                     <> {/* Use Fragment to group elements */}
                         {/* +++ ADD USER MANAGEMENT BUTTON +++ */}
-                        
+
                         {/* +++ END ADD +++ */}
                         <span className="text-gray-600 hidden sm:block font-medium">Welcome, {currentUser.name}!</span>
                     </>
@@ -635,35 +649,23 @@ const ExpenseTracker = ({ report: initialReport, onFinish }) => {
 };
 
 
-// +++ NEW COMPONENT: Create Event Form +++
-// Place this after ExpenseTracker and before ReportDetail
+// +++ REPLACE the existing CreateEventForm component +++
+// (Around line 280)
+
 const CreateEventForm = ({ currentUser, onSuccess, onCancel }) => {
-    // State to hold all event details
+    // State to hold Step 1 event details ONLY
     const [eventData, setEventData] = useState({
-        organizationName: '',
         eventName: '',
-        eventVenue: '',
-        eventDescription: '',
         numberOfDays: '',
         startDate: '',
         endDate: '',
-        attendees: { // Only basic counts for now, list managed later
-            total: '',
-            girls: '',
-            boys: '',
-            // list: [] // Attendee list management comes after event creation
-        },
-        mentor: {
-            name: '',
-            phone: '',
-            rollOrEmpNumber: ''
-        },
-        permissionFrom: {
-            name: '',
-            designation: '',
-            phone: ''
-        },
-        totalAllocatedAmount: '' // Overall budget
+        eventTime: '', // New optional field
+        totalAllocatedAmount: '', // Optional budget
+        headName: '', // New fields for event head
+        headPhone: '',
+        headDesignation: '',
+        eventDescription: '', // For additional description
+        organizationName: '' // Still need organization name
     });
     const [loading, setLoading] = useState(false);
     const [formError, setFormError] = useState('');
@@ -674,18 +676,6 @@ const CreateEventForm = ({ currentUser, onSuccess, onCancel }) => {
     const handleChange = (e) => {
         const { name, value } = e.target;
         setEventData(prev => ({ ...prev, [name]: value }));
-    };
-
-    // Handle changes for nested objects (permissionFrom, mentor, attendees counts)
-    const handleNestedChange = (e, section) => {
-        const { name, value } = e.target;
-        setEventData(prev => ({
-            ...prev,
-            [section]: {
-                ...prev[section],
-                [name]: value
-            }
-        }));
     };
 
     // Handle form submission
@@ -700,28 +690,30 @@ const CreateEventForm = ({ currentUser, onSuccess, onCancel }) => {
             organizerEmail: currentUser.email, // Add the organizer's email
             totalAllocatedAmount: Number(eventData.totalAllocatedAmount) || 0,
             numberOfDays: Number(eventData.numberOfDays) || 0,
-            attendees: {
-                ...eventData.attendees,
-                total: Number(eventData.attendees.total) || 0,
-                girls: Number(eventData.attendees.girls) || 0,
-                boys: Number(eventData.attendees.boys) || 0,
-                // list will be added later
-            }
+            // We removed attendees, mentor, permissionFrom from this initial save
         };
+
+        // Basic validation check
+        if (!finalEventData.eventName || !finalEventData.numberOfDays || !finalEventData.startDate || !finalEventData.endDate) {
+            setFormError('Event Name, Number of Days, Start Date, and End Date are required.');
+            setLoading(false);
+            return;
+        }
+
 
         try {
             const response = await axios.post(`${API_URL}/events`, finalEventData);
             if (response.data && response.data._id) {
-                alert('Event created successfully!');
+                alert('Event details saved successfully! Now add communities.');
                 onSuccess(response.data); // Pass the new event data back up
             } else {
-                 setFormError('Failed to create event. Unexpected response.');
+                setFormError('Failed to create event. Unexpected response.');
             }
         } catch (err) {
             if (err.response && err.response.data && err.response.data.message) {
-                 setFormError(`Error: ${err.response.data.message}`);
+                setFormError(`Error: ${err.response.data.message}`);
             } else {
-                 setFormError('An unexpected server error occurred.');
+                setFormError('An unexpected server error occurred.');
             }
             console.error("Create Event API Error:", err);
         } finally {
@@ -731,74 +723,141 @@ const CreateEventForm = ({ currentUser, onSuccess, onCancel }) => {
 
     return (
         <div className="bg-white p-6 sm:p-10 rounded-xl shadow-lg">
-            <h2 className="text-3xl font-bold text-gray-800 mb-6">Create New Event</h2>
+            <h2 className="text-3xl font-bold text-gray-800 mb-6">Create New Event (Step 1: Details)</h2>
             <form onSubmit={handleSubmit} className="space-y-8">
-                {/* Event Details Section */}
-                <Section title="Event Details">
+                {/* Event Core Details */}
+                <Section title="Core Event Information">
                     <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                         <Input name="organizationName" value={eventData.organizationName} onChange={handleChange} placeholder="Organization Name" required />
                         <Input name="eventName" value={eventData.eventName} onChange={handleChange} placeholder="Event Name" required />
-                        <Input name="eventVenue" value={eventData.eventVenue} onChange={handleChange} placeholder="Event Venue" />
-                        <TextArea name="eventDescription" value={eventData.eventDescription} onChange={handleChange} placeholder="Brief Description of Event" className="md:col-span-2 lg:col-span-3" />
-                        <Input name="numberOfDays" type="number" value={eventData.numberOfDays} onChange={handleChange} placeholder="Number of Days" />
-                        <Input name="startDate" type="date" value={eventData.startDate} onChange={handleChange} label="Start Date" />
-                        <Input name="endDate" type="date" value={eventData.endDate} onChange={handleChange} label="End Date" />
+                        <Input name="numberOfDays" type="number" value={eventData.numberOfDays} onChange={handleChange} placeholder="Number of Days" required />
+                        <Input name="startDate" type="date" value={eventData.startDate} onChange={handleChange} label="Start Date" required />
+                        <Input name="endDate" type="date" value={eventData.endDate} onChange={handleChange} label="End Date" required />
+                        <Input name="eventTime" type="time" value={eventData.eventTime} onChange={handleChange} label="Event Time (Optional, if 1 day)" />
                     </div>
                 </Section>
 
-                {/* Authorization & Leadership Section */}
-                <Section title="Authorization & Leadership">
-                     <div className="grid md:grid-cols-2 gap-x-8 gap-y-4">
-                        <div>
-                             <h4 className="font-semibold text-gray-600 mb-2">Permission From</h4>
-                             <div className="space-y-3">
-                                <Input name="name" value={eventData.permissionFrom.name} onChange={(e) => handleNestedChange(e, 'permissionFrom')} placeholder="Full Name" />
-                                <Input name="designation" value={eventData.permissionFrom.designation} onChange={(e) => handleNestedChange(e, 'permissionFrom')} placeholder="Designation" />
-                                <Input name="phone" value={eventData.permissionFrom.phone} onChange={(e) => handleNestedChange(e, 'permissionFrom')} placeholder="Phone Number" />
-                            </div>
-                        </div>
-                         <div>
-                             <h4 className="font-semibold text-gray-600 mb-2">Event Head / Mentor</h4>
-                             <div className="space-y-3">
-                                 <Input name="name" value={eventData.mentor.name} onChange={(e) => handleNestedChange(e, 'mentor')} placeholder="Full Name" />
-                                 <Input name="rollOrEmpNumber" value={eventData.mentor.rollOrEmpNumber} onChange={(e) => handleNestedChange(e, 'mentor')} placeholder="Roll / Employee No." />
-                                 <Input name="phone" value={eventData.mentor.phone} onChange={(e) => handleNestedChange(e, 'mentor')} placeholder="Phone Number" />
-                             </div>
-                        </div>
-                     </div>
-                </Section>
-
-                {/* Attendees Section (Counts Only for now) */}
-                 <Section title="Attendees Summary">
-                    <div className="grid md:grid-cols-3 gap-4 mb-4">
-                        <Input name="total" type="number" value={eventData.attendees.total} onChange={(e) => handleNestedChange(e, 'attendees')} placeholder="Total No. of People" />
-                        <Input name="boys" type="number" value={eventData.attendees.boys} onChange={(e) => handleNestedChange(e, 'attendees')} placeholder="No. of Boys" />
-                        <Input name="girls" type="number" value={eventData.attendees.girls} onChange={(e) => handleNestedChange(e, 'attendees')} placeholder="No. of Girls" />
+                {/* Event Head Details */}
+                <Section title="Event Head / Coordinator">
+                    <div className="grid md:grid-cols-3 gap-4">
+                        <Input name="headName" value={eventData.headName} onChange={handleChange} placeholder="Head's Full Name" />
+                        <Input name="headDesignation" value={eventData.headDesignation} onChange={handleChange} placeholder="Head's Designation" />
+                        <Input name="headPhone" type="tel" value={eventData.headPhone} onChange={handleChange} placeholder="Head's Phone Number" />
                     </div>
-                     <p className="text-xs text-gray-500">Note: Detailed attendee list can be added after event creation.</p>
                 </Section>
 
-
-                {/* Financials Section */}
-                <Section title="Financials">
-                    <Input name="totalAllocatedAmount" type="number" value={eventData.totalAllocatedAmount} onChange={handleChange} placeholder="Total Allocated Budget for Event (₹)" />
+                {/* Financials & Description */}
+                <Section title="Budget & Description">
+                    <div className="grid md:grid-cols-1 gap-4">
+                        <Input name="totalAllocatedAmount" type="number" value={eventData.totalAllocatedAmount} onChange={handleChange} placeholder="Total Allocated Budget (Optional, ₹)" />
+                        <TextArea name="eventDescription" value={eventData.eventDescription} onChange={handleChange} placeholder="Additional Event Description (Optional)" />
+                    </div>
                 </Section>
 
-                 {formError && <p className="text-red-500 text-sm text-center font-medium">{formError}</p>}
+                {formError && <p className="text-red-500 text-sm text-center font-medium">{formError}</p>}
 
                 {/* Form Actions */}
                 <div className="flex justify-end space-x-4 pt-4 border-t">
                     <button type="button" onClick={onCancel} className="px-8 py-3 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 font-semibold">Cancel</button>
                     <button type="submit" disabled={loading} className="px-8 py-3 text-white bg-green-600 rounded-lg hover:bg-green-700 font-semibold disabled:opacity-50 flex items-center justify-center">
-                        {loading ? <Spinner /> : 'Create Event'}
+                        {loading ? <Spinner /> : 'Save & Add Communities (Step 2)'}
                     </button>
                 </div>
             </form>
         </div>
     );
 };
+// +++ END OF REPLACEMENT +++
+
+// ... after CreateEventForm component ...
+
+// +++ NEW COMPONENT: Manage Communities Page (Step 2) +++
+const ManageCommunitiesPage = ({ event, currentUser, onFinish }) => {
+    // State for this page will go here (e.g., list of communities, form inputs)
+    const [communities, setCommunities] = useState([]); // To store communities later
+    const [showAddCommunityModal, setShowAddCommunityModal] = useState(false);
+    const [isLoadingCommunities, setIsLoadingCommunities] = useState(false); // For fetching later
+    // +++ END ADD +++
+    // --- TODO: Add useEffect to fetch existing communities for this event ---
+    // useEffect(() => {
+    //    fetchCommunities(event._id); 
+    // }, [event._id]);
+
+    // +++ FUNCTION TO UPDATE STATE AFTER SAVING +++
+    const handleCommunitySaved = (newCommunity) => {
+        setCommunities(prev => [...prev, newCommunity]); // Add the new community to the list
+    };
+    // +++ END ADD +++
+
+    // We will add functions here later to:
+    // - Fetch existing communities for this event
+    // - Handle adding a new community (calling the backend API)
+    // - Search for users to add as heads/members
+
+    return (
+        <div className="bg-white p-6 sm:p-10 rounded-xl shadow-lg">
+            <h2 className="text-3xl font-bold text-gray-800 mb-2">Manage Communities</h2>
+            <p className="text-gray-600 mb-6">For Event: <span className="font-semibold text-indigo-600">{event.eventName}</span></p>
+
+            {/* +++ UPDATE DISPLAY LOGIC +++ */}
+            {isLoadingCommunities && <Spinner />}
+            {!isLoadingCommunities && communities.length === 0 && (
+                <p className="text-gray-500">No communities created yet.</p>
+            )}
+            {!isLoadingCommunities && communities.length > 0 && (
+                <div className="space-y-3">
+                    {communities.map(comm => (
+                        <div key={comm._id} className="p-3 border rounded-lg bg-gray-50 flex justify-between items-center">
+                            <div>
+                                <p className="font-semibold text-gray-800">{comm.communityName}</p>
+                                <p className="text-sm text-gray-500">{comm.description}</p>
+                                {/* We'll fetch and display head name later */}
+                                <p className="text-xs text-gray-400 mt-1">Head ID: {comm.head}</p>
+                            </div>
+                            <p className="font-medium text-indigo-600">Budget: ₹{comm.allocatedBudget.toLocaleString()}</p>
+                        </div>
+                    ))}
+                </div>
+            )}
+            {/* +++ END UPDATE +++ */}
+
+            {/* Button to open the 'Add Community' modal */}
+            <Section title="Add New Community">
+                <button
+                    onClick={() => setShowAddCommunityModal(true)}
+                    className="w-full py-3 border-2 border-dashed border-green-400 text-green-600 rounded-lg hover:bg-green-50 transition font-semibold"
+                >
+                    + Add Community
+                </button>
+            </Section>
+
+
+            {/* +++ REPLACE PLACEHOLDER WITH ACTUAL MODAL +++ */}
+            {showAddCommunityModal && (
+                <AddCommunityModal
+                    eventId={event._id} // Pass the event ID
+                    onSave={handleCommunitySaved} // Pass the function to update state
+                    onClose={() => setShowAddCommunityModal(false)}
+                />
+            )}
+            {/* +++ END REPLACEMENT +++ */}
+
+
+            {/* Button to finish and go back to dashboard */}
+            <div className="flex justify-end mt-8 pt-4 border-t">
+                <button
+                    onClick={onFinish}
+                    className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
+                >
+                    Finish & Go to Dashboard
+                </button>
+            </div>
+        </div>
+    );
+};
 // +++ END OF NEW COMPONENT +++
 
+// ReportDetail component starts here...
 // --- Updated ReportDetail component ---
 const ReportDetail = ({ report, onBack, onRefresh }) => {
     const [editingExpense, setEditingExpense] = useState(null);
@@ -1048,6 +1107,159 @@ const AttendeeModal = ({ onSave, onClose }) => {
     const handleSave = () => { if (attendee.name && attendee.rollOrEmpNumber) { onSave(attendee); } else { alert('Name and Roll/Emp Number are required.'); } }
     return (<Modal onClose={onClose}> <h3 className="text-2xl font-bold text-gray-800 mb-6">Add Attendee</h3> <div className="space-y-4"> <Input name="name" value={attendee.name} onChange={handleChange} placeholder="Full Name" /> <Input name="rollOrEmpNumber" value={attendee.rollOrEmpNumber} onChange={handleChange} placeholder="Roll / Employee No." /> <Input name="phone" value={attendee.phone} onChange={handleChange} placeholder="Phone Number" /> <div className="flex justify-end space-x-4 pt-4"> <button onClick={onClose} className="px-6 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300">Cancel</button> <button onClick={handleSave} className="px-6 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700">Add</button> </div> </div> </Modal>);
 };
+
+// Add this new component after AttendeeModal and before ExpenseModal (around line 520)
+
+// +++ NEW COMPONENT: Modal for Adding a Community +++
+const AddCommunityModal = ({ eventId, onSave, onClose }) => {
+    const [communityName, setCommunityName] = useState('');
+    const [description, setDescription] = useState('');
+    const [allocatedBudget, setAllocatedBudget] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [searchResults, setSearchResults] = useState([]);
+    const [selectedHead, setSelectedHead] = useState(null); // Store the selected user object
+    const [isLoadingSearch, setIsLoadingSearch] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    const API_URL = 'http://localhost:5001/api';
+
+    // Function to search users
+    const handleSearchUsers = async () => {
+        if (searchTerm.trim().length < 2) {
+            setSearchResults([]);
+            return;
+        }
+        setIsLoadingSearch(true);
+        setError('');
+        try {
+            const response = await axios.get(`${API_URL}/auth/search?q=${searchTerm}`);
+            setSearchResults(response.data);
+        } catch (err) {
+            setError('Failed to search users.');
+            console.error("Search Users Error:", err);
+            setSearchResults([]);
+        } finally {
+            setIsLoadingSearch(false);
+        }
+    };
+
+    // Handle selecting a user from search results
+    const handleSelectHead = (user) => {
+        setSelectedHead(user);
+        setSearchTerm(user.name); // Put name in search box for visual feedback
+        setSearchResults([]); // Clear results after selection
+    };
+
+    // Handle saving the new community
+    const handleSaveCommunity = async () => {
+        setError('');
+        if (!communityName || !selectedHead) {
+            setError('Community Name and selecting a Head are required.');
+            return;
+        }
+        setIsSaving(true);
+        try {
+            const response = await axios.post(`${API_URL}/events/${eventId}/communities`, {
+                communityName,
+                description,
+                allocatedBudget: Number(allocatedBudget) || 0,
+                headUserId: selectedHead._id // Send the selected user's ID
+            });
+
+            if (response.data && response.data._id) {
+                onSave(response.data); // Pass the new community data back
+                onClose(); // Close the modal
+            } else {
+                setError('Failed to save community. Unexpected response.');
+            }
+        } catch (err) {
+            if (err.response && err.response.data && err.response.data.message) {
+                setError(`Error: ${err.response.data.message}`);
+            } else {
+                setError('An unexpected server error occurred.');
+            }
+            console.error("Save Community Error:", err);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <Modal onClose={onClose}>
+            <h3 className="text-2xl font-bold text-gray-800 mb-6">Add New Community</h3>
+            <div className="space-y-4">
+                <Input
+                    name="communityName"
+                    value={communityName}
+                    onChange={(e) => setCommunityName(e.target.value)}
+                    placeholder="Community Name (e.g., Hospitality, Food)"
+                    required
+                />
+                <TextArea
+                    name="description"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Briefly describe what this community handles"
+                />
+                <Input
+                    name="allocatedBudget"
+                    type="number"
+                    value={allocatedBudget}
+                    onChange={(e) => setAllocatedBudget(e.target.value)}
+                    placeholder="Budget Allocated (₹, Optional)"
+                />
+
+                {/* --- User Search for Head --- */}
+                <div>
+                    <label className="text-sm text-gray-600 font-medium block mb-1">Select Community Head *</label>
+                    <div className="relative">
+                        <Input
+                            type="text"
+                            value={searchTerm}
+                            onChange={(e) => {
+                                setSearchTerm(e.target.value);
+                                setSelectedHead(null); // Clear selection if user types again
+                                handleSearchUsers(); // Trigger search on type
+                            }}
+                            placeholder="Search by name, email, or phone..."
+                        />
+                        {isLoadingSearch && <span className="absolute right-3 top-3 text-gray-400">Searching...</span>}
+                    </div>
+                    {/* Display search results */}
+                    {searchResults.length > 0 && (
+                        <ul className="border border-gray-300 rounded-md mt-1 max-h-40 overflow-y-auto bg-white absolute z-10 w-full shadow-lg">
+                            {searchResults.map(user => (
+                                <li
+                                    key={user._id}
+                                    onClick={() => handleSelectHead(user)}
+                                    className="p-2 hover:bg-indigo-100 cursor-pointer text-sm"
+                                >
+                                    {user.name} ({user.email})
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    {/* Display selected head */}
+                    {selectedHead && (
+                        <p className="text-sm mt-2 text-green-700 font-medium">Selected Head: {selectedHead.name} ({selectedHead.email})</p>
+                    )}
+                </div>
+                {/* --- End User Search --- */}
+
+                {error && <p className="text-red-600 text-sm">{error}</p>}
+
+                <div className="flex justify-end space-x-4 pt-4">
+                    <button onClick={onClose} className="px-6 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 disabled:opacity-50" disabled={isSaving}>Cancel</button>
+                    <button onClick={handleSaveCommunity} className="px-6 py-2 text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center justify-center" disabled={isSaving}>
+                        {isSaving ? <Spinner /> : 'Add Community'}
+                    </button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+// +++ END OF NEW COMPONENT +++
 const ExpenseModal = ({ expense: initialExpense, onSave, onClose, reportId }) => {
     const [expense, setExpense] = useState(initialExpense);
     const isEditMode = !!initialExpense._id;

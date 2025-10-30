@@ -1,44 +1,47 @@
+// models/Event.js
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
-// Reference Attendee and Permission schemas potentially from Report.js if kept separate
-// Or define them here if Report.js is removed/refactored
-
-// Placeholder for Attendee structure (can refine later)
+// Placeholder Attendee schema (if needed at Event level)
 const attendeeSchema = new Schema({
     name: { type: String, required: true, trim: true },
     phone: { type: String, trim: true },
     rollOrEmpNumber: { type: String, trim: true }
 });
 
-
 const eventSchema = new Schema({
     eventName: { type: String, required: true, trim: true },
-    organizationName: { type: String, required: true, trim: true },
+    organizationName: { type: String, required: true, trim: true }, // Keeping Org Name
     eventVenue: { type: String, trim: true },
-    eventDescription: { type: String, trim: true },
+    eventDescription: { type: String, trim: true }, // For "Additional Description"
     numberOfDays: { type: Number, default: 1 },
     startDate: { type: Date },
     endDate: { type: Date },
     
-    totalAllocatedAmount: { type: Number, default: 0 }, // Overall budget for the event
+    // +++ NEW FIELDS FOR STEP 1 FORM +++
+    eventTime: { type: String, trim: true }, // Optional time if 1 day
+    headName: { type: String, trim: true }, // Head of the overall event
+    headPhone: { type: String, trim: true },
+    headDesignation: { type: String, trim: true },
+    // +++ END NEW FIELDS +++
 
-    organizer: { // Link to the User who created the event
+    totalAllocatedAmount: { type: Number, default: 0 }, // Overall budget
+
+    organizer: { // User who created the event
         type: Schema.Types.ObjectId,
         ref: 'User',
         required: true
     },
 
-    // Communities will be stored in their own collection, linking back to this event
-    // We don't embed communities directly here to keep the Event document smaller
-
-    // Keep attendee/mentor/permission info at the Event level as requested
-     attendees: {
+    // Attendee list details (as requested before)
+    attendees: {
         total: { type: Number, default: 0 },
         girls: { type: Number, default: 0 },
         boys: { type: Number, default: 0 },
         list: [attendeeSchema] 
     },
+    
+    // Keeping mentor/permission fields distinct for now, maybe combine later if needed
     mentor: {
         name: { type: String, trim: true },
         phone: { type: String, trim: true },
