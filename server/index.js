@@ -7,7 +7,9 @@ require('dotenv').config();
 // Require All Route Files
 const reportRoutes = require('./routes/reports'); // For Personal Reports
 const authRoutes = require('./routes/auth');     // For User Login/Signup
-const eventRoutes = require('./routes/events');  // For Events & Communities
+// +++ ADD THESE TWO LINES +++
+const eventRoutes = require('./routes/events');
+const communityBaseRoutes = require('./routes/communityBaseRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -24,7 +26,9 @@ app.get('/', (req, res) => {
 // API Routes
 app.use('/api/reports', reportRoutes); // Handles /api/reports/...
 app.use('/api/auth', authRoutes);     // Handles /api/auth/...
-app.use('/api/events', eventRoutes);   // Handles /api/events/...
+// +++ ADD THESE TWO LINES +++
+app.use('/api/events', eventRoutes);
+app.use('/api/communities', communityBaseRoutes);
 
 // Connect to MongoDB and start the server
 const startServer = async () => {

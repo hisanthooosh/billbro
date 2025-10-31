@@ -15,20 +15,85 @@ function App() {
     // Around Line 23
     // Around Line 23
     // Around Line 23
+    // +++ ADD NEW STATE FOR EVENTS +++
+    const [events, setEvents] = useState([]); // This is for Events you organize
+    // +++ END ADD +++
+    // +++ ADD THIS NEW STATE +++
+    const [memberCommunities, setMemberCommunities] = useState([]); // For communities you are a member of
+    // +++ END ADD +++
     const [currentView, setCurrentView] = useState('dashboard'); // ..., signup, createEvent, manageCommunities (NEW)
     const [selectedReport, setSelectedReport] = useState(null);
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [currentUser, setCurrentUser] = useState(JSON.parse(localStorage.getItem('currentUser')) || null); // Store user object or null
 
     // Around Line 30
     const API_URL = 'http://localhost:5001/api'; // Correct Base API URL
 
-    useEffect(() => {
-        if (currentUser) { // Fetch reports if a user is logged in
-            fetchReports(currentUser.email); // Pass email to fetch reports
+    // Around Line 33
+    // --- UPDATED Reusable Data Fetching Function ---
+    const fetchDashboardData = async () => {
+        if (!currentUser) return; // Don't fetch if no user
+
+        console.log("--- fetchDashboardData RUNNING ---");
+        setLoading(true);
+        setError('');
+
+        try {
+            // --- FIX: Fetch reports and events separately ---
+            // This way, if one fails, the other can still load.
+
+            // 1. Fetch Personal Reports
+            try {
+                const reportsResponse = await axios.get(`${API_URL}/reports/user/${currentUser.email}`);
+                setReports(reportsResponse.data);
+                console.log("Fetched Reports:", reportsResponse.data);
+            } catch (reportsError) {
+                console.error("Fetch Reports Error:", reportsError.message);
+                setReports([]); // Set to empty array on error
+                // Don't set the main error, as events might still load
+            }
+
+            // 2. Fetch Events
+            try {
+                const eventsResponse = await axios.get(`${API_URL}/events/organizer/${currentUser.email}`);
+                setEvents(eventsResponse.data);
+                console.log("Fetched Events:", eventsResponse.data);
+            } catch (eventsError) {
+                console.error("Fetch Events Error:", eventsError.message);
+                setEvents([]); // Set to empty array on error
+                // Don't set the main error, as reports might have loaded
+            }// +++ 3. FETCH COMMUNITIES YOU ARE A MEMBER OF +++
+            try {
+                const memberCommResponse = await axios.get(`${API_URL}/communities/member-of/${currentUser.email}`);
+                setMemberCommunities(memberCommResponse.data);
+                console.log("Fetched Member Communities:", memberCommResponse.data);
+            } catch (memberCommError) {
+                console.error("Fetch Member Communities Error:", memberCommError.message);
+                setMemberCommunities([]);
+            }
+            // +++ END ADD +++
+
+        } catch (err) {
+            // This catch is for any other unexpected error
+            setError('Could not fetch dashboard data.');
+            console.error("Fetch Dashboard Data Error:", err);
+            setReports([]);
+            setEvents([]);
+        } finally {
+            setLoading(false);
         }
-    }, [currentUser]);
+    };    // +++ REPLACE YOUR OLD useEffect WITH THIS +++
+    useEffect(() => {
+        // This effect now runs when the user logs in,
+        // OR when the view switches back to the dashboard.
+        if (currentUser && currentView === 'dashboard') {
+            fetchDashboardData();
+        } else if (!currentUser) {
+            setLoading(false); // If no user, stop loading
+        }
+    }, [currentUser, currentView]); // Depends on user and view
+    // +++ END OF useEffect REPLACEMENT +++
 
     const handleLogin = async (e, email, password) => { // Receive email and password
         e.preventDefault();
@@ -122,18 +187,31 @@ function App() {
         setReports([]);
         setCurrentView('dashboard');
     };
+    // Around line 70
     const fetchReports = async (userEmail) => {
-        setLoading(true);
+        // setLoading(true) has been REMOVED
         try {
             const response = await axios.get(`${API_URL}/reports/user/${userEmail}`);
             setReports(response.data);
         } catch (err) {
-            // Keep error handling for personal reports for now
-            // setError('Could not fetch reports.'); 
             console.error("Fetch Reports Error:", err);
-            setReports([]); // Clear reports on error
+            setReports([]);
+        } finally {
+            // setLoading(false) has been REMOVED
         }
-        finally { setLoading(false); }
+    };
+    const fetchEvents = async (userEmail) => {
+        // We don't need to set loading here, as the calling function (onFinish) will handle it
+        try {
+            const eventsResponse = await axios.get(`${API_URL}/events/organizer/${userEmail}`);
+            setEvents(eventsResponse.data);
+            // +++ ADD THIS DEBUGGING LOG +++
+            console.log("Fetched Events:", eventsResponse.data);
+            // +++ END ADD +++
+        } catch (err) {
+            console.error("Fetch Events Error:", err);
+            setEvents([]); // Clear events on error
+        }
     };
 
     const viewReportDetail = async (reportId) => {
@@ -158,6 +236,23 @@ function App() {
             catch (err) { setError('Failed to delete the report.'); }
         }
     };
+
+    // Around line 145, after the deleteReport function
+
+    // +++ ADD THIS NEW FUNCTION +++
+    const deleteEvent = async (eventId) => {
+        if (window.confirm('Are you sure you want to delete this event? This will delete all its communities and expenses forever.')) {
+            try {
+                await axios.delete(`${API_URL}/events/${eventId}`);
+                // Refresh all dashboard data
+                fetchDashboardData();
+            } catch (err) {
+                setError('Failed to delete the event.');
+                console.error("Delete Event Error:", err);
+            }
+        }
+    };
+    // +++ END OF NEW FUNCTION +++
 
     // NEW: Function to handle the transition from creating report details to adding expenses
     const handleReportCreated = (newReport) => {
@@ -184,11 +279,21 @@ function App() {
                     <Dashboard
                         reports={reports} // Pass personal reports for now
                         loading={loading}
+                        currentUser={currentUser} // <<< +++ ADD THIS LINE +++
+                        events={events} // <<< +++ ADD THIS LINE +++
                         error={error}
                         onCreateClick={() => setCurrentView('createReport')} // Still goes to personal report creation
                         onViewClick={viewReportDetail} // Still views personal reports
                         onDeleteClick={deleteReport} // Still deletes personal reports
-                        setCurrentView={setCurrentView} // <<< ADD THIS PROP
+                        memberCommunities={memberCommunities} // <<< +++ ADD THIS PROP +++
+
+                        onViewEventClick={(event) => {
+                            setSelectedReport(event); // Use selectedReport to hold the active event
+                            setCurrentView('manageCommunities');
+                        }}
+                        // We'll add onDeleteEventClick later
+                        setCurrentView={setCurrentView}
+                        onDeleteEventClick={deleteEvent} // <<< +++ ADD THIS PROP +++
                     />
                 )}
                 {/* NEW: Step 1 of creation */}
@@ -235,11 +340,20 @@ function App() {
                     <ManageCommunitiesPage
                         event={selectedReport} // Pass the event data
                         currentUser={currentUser}
+                        // Around line 155
+                        // +++ REPLACE YOUR onFinish WITH THIS +++
+                        // Around line 155
+                        // +++ REPLACE with this new onFinish +++
+                        // +++ REPLACE YOUR onFinish PROP WITH THIS +++
                         onFinish={() => {
-                            fetchReports(currentUser.email); // Re-fetch personal reports
-                            // We might need a way to fetch Events separately later
+                            // We don't need to fetch here anymore.
+                            // Just changing the view to 'dashboard' will
+                            // trigger the useEffect hook, which will
+                            // fetch the new data AND show the spinner.
                             setCurrentView('dashboard');
                         }}
+                    // +++ END OF onFinish REPLACEMENT +++
+                    // +++ END OF REPLACEMENT +++
                     />
                 )}
             </main>
@@ -416,24 +530,25 @@ const Header = ({ currentUser, onLogout, setCurrentView }) => (
         </div>
     </header>
 );
-// Around Line 175
-// --- UPDATED Dashboard Component ---
-const Dashboard = ({ reports, loading, error, onCreateClick, onViewClick, onDeleteClick, setCurrentView }) => (
+// +++ REPLACE YOUR ENTIRE Dashboard COMPONENT WITH THIS +++
+// (This should be around line 270)
+
+const Dashboard = ({ reports, events, memberCommunities, currentUser, loading, error, onCreateClick, onViewClick, onDeleteClick, setCurrentView, onViewEventClick, onDeleteEventClick }) => (
     <div>
         {/* Adjusted layout for buttons */}
         <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
             <h2 className="text-3xl font-bold text-gray-800">Your Dashboard</h2>
             <div className="flex space-x-4"> {/* Group buttons */}
-                {/* NEW "Create Event" button */}
+                {/* "Create Event" button */}
                 <button
-                    onClick={() => setCurrentView('createEvent')} // Navigate to createEvent view
+                    onClick={() => setCurrentView('createEvent')}
                     className="px-6 py-3 font-semibold text-white bg-green-600 rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300 transition-transform transform hover:scale-105"
                 >
                     + Create New Event
                 </button>
-                {/* Updated "Create Personal Report" button */}
+                {/* "Create Personal Report" button */}
                 <button
-                    onClick={onCreateClick} // Still uses the original prop for personal reports
+                    onClick={onCreateClick} 
                     className="px-6 py-3 font-semibold text-white bg-indigo-600 rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-300 transition-transform transform hover:scale-105"
                 >
                     + Create Personal Report
@@ -441,51 +556,141 @@ const Dashboard = ({ reports, loading, error, onCreateClick, onViewClick, onDele
             </div>
         </div>
 
-        {/* --- Display Personal Reports (No change needed here for now) --- */}
-        <h3 className="text-2xl font-semibold text-gray-700 mb-4 pb-2 border-b">My Personal Reports</h3>
+        {/* --- Loading and Error States --- */}
         {loading && <Spinner />}
         {error && <p className="text-red-500 bg-red-100 p-3 rounded-md">{error}</p>}
-        {!loading && !reports.length && (
-            <div className="text-center py-16 bg-white rounded-lg shadow">
-                <p className="text-xl text-gray-500">No personal reports found.</p>
-                <p className="text-gray-400 mt-2">Click "Create Personal Report" to get started!</p>
-            </div>
-        )}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {reports.map(report => (
-                <div key={report._id} className="bg-white rounded-lg shadow-lg p-6 flex flex-col justify-between hover:shadow-xl transition-shadow">
-                    <div>
-                        {/* Displaying Personal Report details */}
-                        <h3 className="text-xl font-bold text-gray-900 truncate">{report.eventName}</h3>
-                        <p className="text-sm text-gray-500">{report.organizationName}</p>
-                        <p className="text-xs text-gray-400 mt-2">Created: {new Date(report.createdAt).toLocaleDateString()}</p>
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-gray-200 flex justify-between items-center">
-                        <div className='text-left'>
-                            <p className="text-sm text-gray-500">Total Spent</p>
-                            <p className="text-lg font-semibold text-indigo-600">
-                                ₹{report.expenses.reduce((sum, ex) => sum + ex.amount, 0).toLocaleString()}
-                            </p>
+
+        {/* +++ SECTION FOR EVENTS (WITH SAFETY CHECKS) +++ */}
+        {!loading && (
+            <Section title="My Events (as Organizer)">
+                {/* Check if events is an array and has no length */}
+                {(!events || events.length === 0) && <p className="text-gray-500">You have not created any events yet.</p>}
+                
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    {/* Check if events is an array before mapping */}
+                    {events && events.map(event => (
+                        <div key={event._id} className="bg-white rounded-lg shadow-lg p-6 flex flex-col justify-between hover:shadow-xl transition-shadow">
+                            <div>
+                                <h3 className="text-xl font-bold text-green-700 truncate">{event.eventName}</h3>
+                                <p className="text-sm text-gray-500">{event.organizationName}</p>
+                                <p className="text-xs text-gray-400 mt-2">Created: {new Date(event.createdAt).toLocaleDateString()}</p>
+                            </div>
+                            <div className="mt-4 pt-4 border-t border-gray-200 flex justify-between items-center">
+                                <div className='text-left'>
+                                    <p className="text-sm text-gray-500">Event Budget</p>
+                                    <p className="text-lg font-semibold text-green-600">
+                                        ₹{event.totalAllocatedAmount.toLocaleString()}
+                                    </p>
+                                </div>
+                                <div className="flex space-x-2">
+                                    <button
+                                        onClick={() => onViewEventClick(event)}
+                                        className="p-2 text-green-600 bg-green-100 rounded-full hover:bg-green-200 transition" title="Manage Event"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.49 3.17c.38-1.56 2.62-1.56 3.02 0l1.29 5.22c.1.41.47.71.89.71H20c1.66 0 2.34 2.01 1.09 3.09l-4.26 3.1c-.34.25-.5.7-.4 1.11l1.63 6.02c.38 1.4-1.17 2.58-2.4 1.77l-5.1-3.73c-.36-.26-.86-.26-1.22 0l-5.1 3.73c-1.23.81-2.78-.37-2.4-1.77l1.63-6.02c.1-.41-.06-.86-.4-1.11l-4.26-3.1C-.34 11.1 1.34 9.09 3 9.09h3.78c.42 0 .79-.3.89-.71l1.29-5.22zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" /></svg>
+                                    </button>
+                                     <button
+                                        onClick={() => onDeleteEventClick(event._id)}
+                                        className="p-2 text-red-600 bg-red-100 rounded-full hover:bg-red-200 transition" title="Delete Event"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" /></svg>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
-                        <div className="flex space-x-2">
-                            <button onClick={() => onViewClick(report._id)} className="p-2 text-indigo-600 bg-indigo-100 rounded-full hover:bg-indigo-200 transition" title="View Details">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>
-                            </button>
-                            <button onClick={() => onDeleteClick(report._id)} className="p-2 text-red-600 bg-red-100 rounded-full hover:bg-red-200 transition" title="Delete Report">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" /></svg>
-                            </button>
-                        </div>
-                    </div>
+                    ))}
                 </div>
-            ))}
-        </div>
-        {/* Placeholder for Events List (to be added later) */}
-        {/* <h3 className="text-2xl font-semibold text-gray-700 mt-10 mb-4 pb-2 border-b">My Events</h3> */}
-        {/* <p className="text-gray-500">Events you are organizing or part of will appear here.</p> */}
+            </Section>
+        )}
+        {/* +++ END OF EVENTS SECTION +++ */}
+
+        {/* +++ NEW SECTION FOR "MY COMMUNITIES" +++ */}
+        {!loading && (
+            <Section title="My Communities (as Member)" className="mt-8">
+                {/* Safety Check 1: Check if 'memberCommunities' exists */}
+                {(!memberCommunities || memberCommunities.length === 0) && <p className="text-gray-500">You have not been added to any communities yet.</p>}
+                
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    {/* Safety Check 2: Check if 'memberCommunities' exists before mapping */}
+                    {memberCommunities && memberCommunities.map(community => (
+                        <div key={community._id} className="bg-white rounded-lg shadow-lg p-6 flex flex-col justify-between hover:shadow-xl transition-shadow">
+                            <div>
+                                <h3 className="text-xl font-bold text-purple-700 truncate">{community.communityName}</h3>
+                                <p className="text-sm text-gray-500">
+                                    Event: {community.event ? community.event.eventName : 'Unknown Event'}
+                                </p>
+                                <p className="text-xs text-gray-400 mt-2">Role: {community.head === currentUser._id ? 'Community Head' : 'Member'}</p>
+                            </div>
+                            <div className="mt-4 pt-4 border-t border-gray-200 flex justify-between items-center">
+                                <div className='text-left'>
+                                    <p className="text-sm text-gray-500">Community Budget</p>
+                                    <p className="text-lg font-semibold text-purple-600">
+                                        ₹{community.allocatedBudget.toLocaleString()}
+                                    </p>
+                                </div>
+                                <div className="flex space-x-2">
+                                    <button
+                                        // onClick={() => onViewCommunity(community._id)} // <<< We will build this next
+                                        className="p-2 text-purple-600 bg-purple-100 rounded-full hover:bg-purple-200 transition" 
+                                        title="View Community"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </Section>
+        )}
+        {/* +++ END OF NEW SECTION +++ */}
+
+
+        {/* --- SECTION FOR PERSONAL REPORTS (WITH SAFETY CHECKS) --- */}
+        {!loading && (
+            <Section title="My Personal Reports" className="mt-8">
+                {/* Safety Check 1: Check if 'reports' exists */}
+                {(!reports || reports.length === 0) && (
+                    <div className="text-center py-8">
+                        <p className="text-lg text-gray-500">No personal reports found.</p>
+                    </div>
+                )}
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    {/* Safety Check 2: Check if 'reports' exists before mapping */}
+                    {reports && reports.map(report => (
+                        <div key={report._id} className="bg-white rounded-lg shadow-lg p-6 flex flex-col justify-between hover:shadow-xl transition-shadow">
+                            <div>
+                                <h3 className="text-xl font-bold text-gray-900 truncate">{report.eventName}</h3>
+                                <p className="text-sm text-gray-500">{report.organizationName}</p>
+                                <p className="text-xs text-gray-400 mt-2">Created: {new Date(report.createdAt).toLocaleDateString()}</p>
+                            </div>
+                            <div className="mt-4 pt-4 border-t border-gray-200 flex justify-between items-center">
+                                <div className='text-left'>
+                                    <p className="text-sm text-gray-500">Total Spent</p>
+                                    <p className="text-lg font-semibold text-indigo-600">
+                                        ₹{report.expenses.reduce((sum, ex) => sum + ex.amount, 0).toLocaleString()}
+                                    </p>
+                                </div>
+                                <div className="flex space-x-2">
+                                    <button onClick={() => onViewClick(report._id)} className="p-2 text-indigo-600 bg-indigo-100 rounded-full hover:bg-indigo-200 transition" title="View Details">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>
+                                    </button>
+                                    <button onClick={() => onDeleteClick(report._id)} className="p-2 text-red-600 bg-red-100 rounded-full hover:bg-red-200 transition" title="Delete Report">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </Section>
+        )}
     </div>
 );
-// --- END of Updated Dashboard Component ---
-// NEW: Step 1 Component - Creating the main report details
+
+
 const ReportCreationForm = ({ email, onSuccess, onCancel }) => {
     const [reportData, setReportData] = useState({
         organizationName: '', eventName: '', eventVenue: '', eventDescription: '',
@@ -941,25 +1146,24 @@ const ReportDetail = ({ report, onBack, onRefresh }) => {
                 </Section>
                 <Section title="Summary Table">
                     <table className="w-full text-sm text-left border-collapse">
-                        <thead className="bg-gray-100">
-                            <tr>
-                                <th className="p-3 border">Category</th>
-                                <th className="p-3 border">Description</th>
-                                <th className="p-3 border text-right">Amount (₹)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {report.expenses.map((exp) => (
-                                <tr key={exp._id} className="border-b">
-                                    <td className="p-3 border font-semibold">{exp.category}</td>
-                                    <td className="p-3 border text-gray-600">
-                                        {exp.description || exp.details.description || exp.details.vehicle || exp.details.hotelName || exp.details.restaurantName || ''}
-                                    </td>
+                        {/* FIX: Removed whitespace between <thead> and <tr> */}
+                        <thead className="bg-gray-100"><tr>
+                            <th className="p-3 border">Category</th>
+                            <th className="p-3 border">Description</th>
+                            <th className="p-3 border text-right">Amount (₹)</th>
+                        </tr></thead>
 
-                                    <td className="p-3 border text-right font-medium">{exp.amount.toLocaleString()}</td>
-                                </tr>
-                            ))}
-                        </tbody>
+                        {/* FIX: Removed whitespace between <tbody> and {map} */}
+                        <tbody>{report.expenses.map((exp) => (
+                            <tr key={exp._id} className="border-b">
+                                <td className="p-3 border font-semibold">{exp.category}</td>
+                                <td className="p-3 border text-gray-600">
+                                    {exp.description || exp.details.description || exp.details.vehicle || exp.details.hotelName || exp.details.restaurantName || ''}
+                                </td>
+                                <td className="p-3 border text-right font-medium">{exp.amount.toLocaleString()}</td>
+                            </tr>
+                        ))}</tbody>
+
                         <tfoot>
                             <tr className="bg-gray-200 font-bold">
                                 <td colSpan="2" className="p-4 border text-lg">Total Expenses</td>

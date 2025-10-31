@@ -1,48 +1,34 @@
 const Community = require('../models/Community');
-const Event = require('../models/Event'); // Need Event model to validate event existence
-const User = require('../models/User'); // Need User model to validate head user existence
+const Event = require('../models/Event');
+const User = require('../models/User');
 
 // --- Create a new Community within an Event ---
 const createCommunity = async (req, res) => {
-    const { eventId } = req.params; // Get the parent Event ID from the URL
-    // Get community details + the ID of the user designated as Head
+    // ... (This function stays the same as before)
+    const { eventId } = req.params; 
     const { communityName, description, allocatedBudget, headUserId } = req.body;
-
     if (!communityName || !headUserId) {
-        return res.status(400).json({ message: 'Community name and head user ID are required.' });
+        return res.status(400).json({ message: 'Community name and a designated Head User ID are required.' });
     }
-
     try {
-        // 1. Check if the parent Event exists
         const parentEvent = await Event.findById(eventId);
         if (!parentEvent) {
             return res.status(404).json({ message: 'Parent event not found.' });
         }
-
-        // 2. Check if the designated Head User exists
         const headUser = await User.findById(headUserId);
         if (!headUser) {
             return res.status(404).json({ message: 'Designated head user not found.' });
         }
-        
-        // --- TODO: Add Authorization Check ---
-        // Verify that the user making the request is the organizer of the parentEvent?
-
-        // 3. Create the new Community
         const newCommunity = new Community({
             communityName,
             description,
             allocatedBudget: Number(allocatedBudget) || 0,
-            event: eventId, // Link to the parent event
-            head: headUserId, // Link to the head user
-            members: [headUserId] // Automatically add the head as the first member
+            event: eventId, 
+            head: headUserId, 
+            members: [headUserId]
         });
-
-        // 4. Save the community
         const savedCommunity = await newCommunity.save();
-
         res.status(201).json(savedCommunity);
-
     } catch (error) {
         console.error("Create Community Error:", error);
         if (error.name === 'ValidationError') {
@@ -55,11 +41,40 @@ const createCommunity = async (req, res) => {
     }
 };
 
-// --- We'll add functions later for: ---
-// Getting communities for an event
-// Adding members to a community
-// Getting a specific community's details
+// +++ NEW: Function to get all communities a user is a member of +++
+const getMemberCommunities = async (req, res) => {
+    // We get the user's *email* from the URL query
+    const { email } = req.params; 
+
+    if (!email) {
+        return res.status(400).json({ message: 'User email is required.' });
+    }
+
+    try {
+        // Find the user by their email to get their ID
+        const user = await User.findOne({ email: email.toLowerCase() });
+        if (!user) {
+            return res.status(404).json({ message: 'User not found.' });
+        }
+
+        // Find all communities where the 'members' array contains this user's ID
+        // We also "populate" the 'event' field to get the event's name
+        const communities = await Community.find({ members: user._id })
+                                           .populate('event', 'eventName organizationName') // Fetches event name and org name
+                                           .sort({ createdAt: -1 });
+
+        res.status(200).json(communities);
+
+    } catch (error) {
+        console.error("Get Member Communities Error:", error);
+        res.status(500).json({ message: 'Server error fetching communities.' });
+    }
+};
+// +++ END OF NEW FUNCTION +++
+
 
 module.exports = {
-    createCommunity
+    createCommunity,
+    getMemberCommunities // <<< Add the new function to exports
 };
+
